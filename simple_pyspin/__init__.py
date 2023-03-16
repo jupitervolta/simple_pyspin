@@ -285,41 +285,45 @@ class Camera:
         '''
         info = {'name': name}
 
-        if name in self.camera_attributes:
-            node = self.camera_attributes[name]
-        elif name in self.camera_methods:
-            node = self.camera_methods[name]
-        else:
-            raise ValueError("'%s' is not a camera method or attribute" % name)
+        try:
+            if name in self.camera_attributes:
+                node = self.camera_attributes[name]
+            elif name in self.camera_methods:
+                node = self.camera_methods[name]
+            else:
+                raise ValueError("'%s' is not a camera method or attribute" % name)
 
-        info['type'] = self.camera_node_types[name]
+            info['type'] = self.camera_node_types[name]
 
-        if hasattr(node, 'GetAccessMode'):
-            access = node.GetAccessMode()
-            info['access'] = self._rw_modes.get(access, access)
-            # print(info['access'])
-            if isinstance(info['access'], str) and 'read' in info['access']:
-                info['value'] = getattr(self, name)
+            if hasattr(node, 'GetAccessMode'):
+                access = node.GetAccessMode()
+                info['access'] = self._rw_modes.get(access, access)
+                # print(info['access'])
+                if isinstance(info['access'], str) and 'read' in info['access']:
+                    info['value'] = getattr(self, name)
 
-        # print(info)
-        if info.get('access') != 0:
-            for attr in ("description", "unit", "min", "max"):
-                fname = "Get" + attr.capitalize()
-                f = getattr(node, fname, None)
-                if f:
-                    info[attr] = f()
-            if hasattr(node, 'GetEntries'):
-                entries = []
-                entry_desc = []
-                has_desc = False
-                for entry in node.GetEntries():
-                    entries.append(entry.GetName().split('_')[-1])
-                    entry_desc.append(entry.GetDescription().strip())
-                    if entry_desc[-1]: has_desc = True
-                info['entries'] = entries
-                if has_desc:
-                    info['entry_descriptions'] = entry_desc
+            # print(info)
+            if info.get('access') != 0:
+                for attr in ("description", "unit", "min", "max"):
+                    fname = "Get" + attr.capitalize()
+                    f = getattr(node, fname, None)
+                    if f:
+                        info[attr] = f()
+                if hasattr(node, 'GetEntries'):
+                    entries = []
+                    entry_desc = []
+                    has_desc = False
+                    for entry in node.GetEntries():
+                        entries.append(entry.GetName().split('_')[-1])
+                        entry_desc.append(entry.GetDescription().strip())
+                        if entry_desc[-1]: has_desc = True
+                    info['entries'] = entries
+                    if has_desc:
+                        info['entry_descriptions'] = entry_desc
 
+        except Exception as e:
+            print(f"Exception in get_info: {str(e)}")
+        
         return info
 
 
