@@ -15,15 +15,19 @@
 
 import numpy as np
 import PySpin
+import time
+
 
 class CameraError(Exception):
     pass
 
+
 _SYSTEM = None
 
+
 def list_cameras():
-    '''Return a list of Spinnaker cameras.  Also initializes the PySpin
-    `System`, if needed.  (See PySpin documentation for more info.)'''
+    """Return a list of Spinnaker cameras.  Also initializes the PySpin
+    `System`, if needed.  (See PySpin documentation for more info.)"""
 
     global _SYSTEM
 
@@ -34,7 +38,7 @@ def list_cameras():
 
 
 class Camera:
-    '''
+    """
     A class used to encapsulate a PySpin camera.
 
     Attributes
@@ -84,10 +88,10 @@ class Camera:
     document()
         Create a Markdown documentation file with info about all camera
         attributes and methods.
-    '''
+    """
 
     def __init__(self, index=0, lock=True):
-        '''
+        """
         Parameters
         ----------
         index : int or str (default: 0)
@@ -96,7 +100,7 @@ class Camera:
         lock : bool (default: True)
             If True, setting new attributes after initialization results in
             an error.
-        '''
+        """
         super().__setattr__("camera_attributes", {})
         super().__setattr__("camera_methods", {})
         super().__setattr__("camera_node_types", {})
@@ -118,7 +122,7 @@ class Camera:
         PySpin.RO: "read only",
         PySpin.RW: "read/write",
         PySpin.WO: "write only",
-        PySpin.NA: "not available"
+        PySpin.NA: "not available",
     }
 
     _attr_types = {
@@ -130,17 +134,17 @@ class Camera:
     }
 
     _attr_type_names = {
-        PySpin.intfIFloat: 'float',
-        PySpin.intfIBoolean: 'bool',
-        PySpin.intfIInteger: 'int',
-        PySpin.intfIEnumeration: 'enum',
-        PySpin.intfIString: 'string',
-        PySpin.intfICommand: 'command',
+        PySpin.intfIFloat: "float",
+        PySpin.intfIBoolean: "bool",
+        PySpin.intfIInteger: "int",
+        PySpin.intfIEnumeration: "enum",
+        PySpin.intfIString: "string",
+        PySpin.intfICommand: "command",
     }
 
     def init(self):
-        '''Initializes the camera.  Automatically called if the camera is opened
-        using a `with` clause.'''
+        """Initializes the camera.  Automatically called if the camera is opened
+        using a `with` clause."""
 
         self.cam.Init()
 
@@ -160,8 +164,8 @@ class Camera:
         return self
 
     def close(self):
-        '''Closes the camera and cleans up.  Automatically called if the camera
-        is opening using a `with` clause.'''
+        """Closes the camera and cleans up.  Automatically called if the camera
+        is opening using a `with` clause."""
 
         self.stop()
         del self.cam
@@ -175,19 +179,19 @@ class Camera:
         self.close()
 
     def start(self):
-        'Start recording images.'
+        "Start recording images."
         if not self.running:
             self.cam.BeginAcquisition()
             self.running = True
 
     def stop(self):
-        'Stop recording images.'
+        "Stop recording images."
         if self.running:
             self.cam.EndAcquisition()
         self.running = False
 
     def get_image(self, wait=True):
-        '''Get an image from the camera.
+        """Get an image from the camera.
 
         Parameters
         ----------
@@ -198,11 +202,13 @@ class Camera:
         Returns
         -------
         img : PySpin Image
-        '''
-        return self.cam.GetNextImage(PySpin.EVENT_TIMEOUT_INFINITE if wait else PySpin.EVENT_TIMEOUT_NONE)
+        """
+        return self.cam.GetNextImage(
+            PySpin.EVENT_TIMEOUT_INFINITE if wait else PySpin.EVENT_TIMEOUT_NONE
+        )
 
-    def get_array(self, wait=True, get_chunk=False):
-        '''Get an image from the camera, and convert it to a numpy array.
+    def get_array2(self, timeout=-1, get_chunk=False):
+        """Get an image from the camera, and convert it to a numpy array.
 
         Parameters
         ----------
@@ -216,9 +222,52 @@ class Camera:
         -------
         img : Numpy array
         chunk : PySpin (only if get_chunk == True)
-        '''
+        """
+        img = None
+        if timeout < 0:
+            # Infinite wait potential
+            img = self.cam.GetNextImage(PySpin.EVENT_TIMEOUT_INFINITE)
+        else:
+            n, t0 = 0, time.time()
+            # Try at least once, end if timeout is reached
+            while n == 0 or abs(time.time() - t0) < timeout:
+                try:
+                    img = self.cam.GetNextImage(PySpin.EVENT_TIMEOUT_NONE)
+                    # If we didn't error, return the image
+                    break
+                except KeyboardInterrupt:
+                    break
+                except Exception as e:
+                    n+=1
+                    time.sleep(1e-6)
+        
+        if img is None:
+            return None
+        elif get_chunk:
+            return img.GetNDArray(), img.GetChunkData()
+        else:
+            return img.GetNDArray()
 
-        img = self.cam.GetNextImage(PySpin.EVENT_TIMEOUT_INFINITE if wait else PySpin.EVENT_TIMEOUT_NONE)
+    def get_array(self, wait=True, get_chunk=False):
+        """Get an image from the camera, and convert it to a numpy array.
+
+        Parameters
+        ----------
+        wait : bool (default: True)
+            If True, waits for the next image.  Otherwise throws an exception
+            if there isn't one ready.
+        get_chunk : bool (default: False)
+            If True, returns chunk data from image frame.
+
+        Returns
+        -------
+        img : Numpy array
+        chunk : PySpin (only if get_chunk == True)
+        """
+
+        img = self.cam.GetNextImage(
+            PySpin.EVENT_TIMEOUT_INFINITE if wait else PySpin.EVENT_TIMEOUT_NONE
+        )
 
         if get_chunk:
             return img.GetNDArray(), img.GetChunkData()
@@ -227,7 +276,6 @@ class Camera:
 
     def __getattr__(self, attr):
         if attr in self.camera_attributes:
-
             prop = self.camera_attributes[attr]
             if not PySpin.IsReadable(prop):
                 raise CameraError("Camera property '%s' is not readable" % attr)
@@ -243,30 +291,30 @@ class Camera:
         else:
             raise AttributeError(attr)
 
-
     def __setattr__(self, attr, val):
         if attr in self.camera_attributes:
-
             prop = self.camera_attributes[attr]
             if not PySpin.IsWritable(prop):
                 raise CameraError("Property '%s' is not currently writable!" % attr)
 
-            if hasattr(prop, 'SetValue'):
+            if hasattr(prop, "SetValue"):
                 prop.SetValue(val)
             else:
                 prop.FromString(val)
 
         elif attr in self.camera_methods:
-            raise CameraError("Camera method '%s' is a function -- you can't assign it a value!" % attr)
+            raise CameraError(
+                "Camera method '%s' is a function -- you can't assign it a value!"
+                % attr
+            )
         else:
             if attr not in self.__dict__ and self.lock and self.initialized:
                 raise CameraError("Unknown property '%s'." % attr)
             else:
                 super().__setattr__(attr, val)
 
-
     def get_info(self, name):
-        '''Gen information on a camera node (attribute or method).
+        """Gen information on a camera node (attribute or method).
 
         Parameters
         ----------
@@ -282,8 +330,8 @@ class Camera:
                 - `'value'`: the current value.
                 - `'unit'`: the unit of the value (as a string).
                 - `'min'` and `'max'`: the min/max value.
-        '''
-        info = {'name': name}
+        """
+        info = {"name": name}
 
         try:
             if name in self.camera_attributes:
@@ -293,99 +341,130 @@ class Camera:
             else:
                 raise ValueError("'%s' is not a camera method or attribute" % name)
 
-            info['type'] = self.camera_node_types[name]
+            info["type"] = self.camera_node_types[name]
 
-            if hasattr(node, 'GetAccessMode'):
+            if hasattr(node, "GetAccessMode"):
                 access = node.GetAccessMode()
-                info['access'] = self._rw_modes.get(access, access)
+                info["access"] = self._rw_modes.get(access, access)
                 # print(info['access'])
-                if isinstance(info['access'], str) and 'read' in info['access']:
-                    info['value'] = getattr(self, name)
+                if isinstance(info["access"], str) and "read" in info["access"]:
+                    info["value"] = getattr(self, name)
 
             # print(info)
-            if info.get('access') != 0:
+            if info.get("access") != 0:
                 for attr in ("description", "unit", "min", "max"):
                     fname = "Get" + attr.capitalize()
                     f = getattr(node, fname, None)
                     if f:
                         info[attr] = f()
-                if hasattr(node, 'GetEntries'):
+                if hasattr(node, "GetEntries"):
                     entries = []
                     entry_desc = []
                     has_desc = False
                     for entry in node.GetEntries():
-                        entries.append(entry.GetName().split('_')[-1])
+                        entries.append(entry.GetName().split("_")[-1])
                         entry_desc.append(entry.GetDescription().strip())
-                        if entry_desc[-1]: has_desc = True
-                    info['entries'] = entries
+                        if entry_desc[-1]:
+                            has_desc = True
+                    info["entries"] = entries
                     if has_desc:
-                        info['entry_descriptions'] = entry_desc
+                        info["entry_descriptions"] = entry_desc
 
         except Exception as e:
             print(f"Exception in get_info: {str(e)}")
-        
+
         return info
 
-
-    def document(self):
-        '''Creates a MarkDown documentation string for the camera.'''
-        lines = [self.DeviceVendorName.strip() + ' ' + self.DeviceModelName.strip()]
-        lines.append('=' * len(lines[-1]))
-        lines.append('')
-        lines.append('*Version: %s*' % getattr(self, 'DeviceVersion', '?'))
-        lines.append('')
-
-        lines.append('Attributes')
-        lines.append('-' * len(lines[-1]))
-        lines.append('')
+    def document_json(self):
+        a, c = {}, {}
 
         for attr in sorted(self.camera_attributes.keys()):
-            if '_' in attr:
+            try:
+                if "_" in attr:
+                    continue
+                info = self.get_info(attr)
+                if not info.get("access", 0):
+                    continue
+                a[attr] = info
+            except Exception as e:
+                print(f"Exception in document_json [attributes]: {str(e)}")
+
+        for attr in sorted(self.camera_methods.keys()):
+            try:
+                if "_" in attr:
+                    continue
+                info = self.get_info(attr)
+                c[attr] = info
+            except Exception as e:
+                print(f"Exception in document_json [commands]: {str(e)}")
+
+        return {"attributes": a, "commands": c}
+
+    def document(self):
+        """Creates a MarkDown documentation string for the camera."""
+        lines = [
+            "blab"
+        ]  # self.DeviceVendorName.strip() + ' ' + self.DeviceModelName.strip()]
+        lines.append("=" * len(lines[-1]))
+        lines.append("")
+        lines.append("*Version: %s*" % getattr(self, "DeviceVersion", "?"))
+        lines.append("")
+
+        lines.append("Attributes")
+        lines.append("-" * len(lines[-1]))
+        lines.append("")
+
+        for attr in sorted(self.camera_attributes.keys()):
+            if "_" in attr:
                 continue
             # print(attr)
             info = self.get_info(attr)
-            if not info.get('access', 0):
+            if not info.get("access", 0):
                 continue
-            lines.append('`%s` : `%s`  ' % (attr, info.get('type', '?')))
-            lines.append('  ' + info.get('description', '(no description provided)'))
-            lines.append('  - default access: %s' % info.get('access', '?'))
-            if 'value' in info:
-                lines.append('  - default value: `%s`' % repr(info['value']))
-            if 'unit' in info and info['unit'].strip():
-                lines.append('  - unit: %s' % info['unit'])
-            if 'min' in info and 'max' in info:
-                lines.append('  - default range: %s - %s' % (info['min'], info['max']))
-            if 'entries' in info:
-                if 'entry_descriptions' in info:
-                    lines.append('  - possible values:')
-                    for e, ed in zip(info['entries'], info['entry_descriptions']):
+            lines.append("`%s` : `%s`  " % (attr, info.get("type", "?")))
+            lines.append("  " + info.get("description", "(no description provided)"))
+            lines.append("  - default access: %s" % info.get("access", "?"))
+            if "value" in info:
+                lines.append("  - default value: `%s`" % repr(info["value"]))
+            if "unit" in info and info["unit"].strip():
+                lines.append("  - unit: %s" % info["unit"])
+            if "min" in info and "max" in info:
+                lines.append("  - default range: %s - %s" % (info["min"], info["max"]))
+            if "entries" in info:
+                if "entry_descriptions" in info:
+                    lines.append("  - possible values:")
+                    for e, ed in zip(info["entries"], info["entry_descriptions"]):
                         if ed:
                             lines.append("    - `'%s'`: %s" % (e, ed))
                         else:
                             lines.append("    - `'%s'`" % e)
                 else:
-                    lines.append('  - possible values: %s' % (', '.join("`'%s'`" % e for e in info['entries'])))
+                    lines.append(
+                        "  - possible values: %s"
+                        % (", ".join("`'%s'`" % e for e in info["entries"]))
+                    )
 
-            lines.append('')
+            lines.append("")
 
-        lines.append('Commands')
-        lines.append('-' * len(lines[-1]))
-        lines.append('')
-        lines.append('**Note: the camera recording should be started/stopped using the `start` and `stop` methods, not any of the functions below (see simple_pyspin documentation).**')
-        lines.append('')
+        lines.append("Commands")
+        lines.append("-" * len(lines[-1]))
+        lines.append("")
+        lines.append(
+            "**Note: the camera recording should be started/stopped using the `start` and `stop` methods, not any of the functions below (see simple_pyspin documentation).**"
+        )
+        lines.append("")
 
         for attr in sorted(self.camera_methods.keys()):
-            if '_' in attr:
+            if "_" in attr:
                 continue
             # print(attr)
             info = self.get_info(attr)
-            lines.append('`%s()`:  ' % (attr))
-            lines.append('  ' + info.get('description', '(no description provided)'))
-            lines.append('  - default access: %s' % info.get('access', '?'))
-            lines.append('')
+            lines.append("`%s()`:  " % (attr))
+            lines.append("  " + info.get("description", "(no description provided)"))
+            lines.append("  - default access: %s" % info.get("access", "?"))
+            lines.append("")
 
-        return '\n'.join(lines)
-
+        return "\n".join(lines)
 
     # def method_info(self, depth=1):
     #     '''Dump a string containing info about all the dynamically generated
